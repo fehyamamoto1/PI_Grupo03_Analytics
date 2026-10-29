@@ -74,12 +74,7 @@ with st.sidebar:
     if cfg.is_mongo:
         st.success("Atlas - " + cfg.mongo_db)
     else:
-        st.warning("Dados sinteticos")
-        st.caption(
-            "O schema é idêntico ao do PI III mais os campos propostos. Para ler "
-            "o banco de verdade, preencha MONGO_URI no .env e troque "
-            "DATA_SOURCE para mongo."
-        )
+        st.warning("Dados sintéticos")
     st.divider()
     period = st.select_slider("Período analisado", options=[7, 14, 28, 56, 90], value=28)
     horizon = st.select_slider("Horizonte da previsão", options=[7, 14], value=7)
@@ -115,7 +110,7 @@ win = metrics.window(sales, period)
 
 tabs = st.tabs([
     "Visão geral", "Quando vendo", "O que vendo", "O que comprar",
-    "Consultar operações", "Qualidade do dado",
+    "Consultar operações", "Desempenho do colaborador",
 ])
 
 with tabs[0]:
@@ -146,7 +141,7 @@ with tabs[0]:
     st.subheader("Por onde vendo")
     channels = metrics.channel_breakdown(win)
     if channels.empty:
-        st.info("Sem canal registrado. O campo orderChannel ainda não existe no banco.")
+        st.info("Sem canal registrado no período.")
     else:
         cols = st.columns(len(channels))
         for col, (_, row) in zip(cols, channels.iterrows()):
@@ -188,10 +183,6 @@ with tabs[0]:
             }),
             width="stretch", hide_index=True,
         )
-        st.caption(
-            "A comissão sai de schema.PLATFORM_COMMISSION. Confira os percentuais "
-            "com os contratos reais antes de usar numa decisão."
-        )
 
     pay = metrics.payment_mix(win)
     if not pay.empty:
@@ -219,17 +210,9 @@ with tabs[0]:
             }),
             width="stretch", hide_index=True,
         )
-        st.caption(
-            "As duas retenções são separadas de propósito. Pix e dinheiro têm "
-            "taxa zero: o que aparece em comissão são pedidos de delivery pagos "
-            "por esses meios, e essa retenção é do app, não da maquininha. "
-            "Desconto para Pix se paga com a coluna Taxa do meio, não com a "
-            "coluna de comissão."
-        )
 
 with tabs[1]:
     st.subheader("Quando o movimento acontece")
-    st.caption("Pedidos por dia da semana e hora. Sai só de orderDate, sem modelo.")
 
     opcoes = ["Todos os canais"] + [channel_name(c) for c in sorted(win["channel"].unique())]
     escolha = st.radio("Canal", opcoes, horizontal=True, key="hm_canal")
@@ -277,7 +260,7 @@ with tabs[1]:
 
     dur = metrics.duration_stats(win)
     if dur.empty:
-        st.info("Sem duração de atendimento. O campo closedAt ainda não existe.")
+        st.info("Sem duração de atendimento no período.")
     else:
         st.subheader("Tempo de atendimento")
         st.dataframe(
@@ -289,10 +272,6 @@ with tabs[1]:
                 "median_min": "Mediana", "p90_min": "90% em até",
             }),
             width="stretch", hide_index=True,
-        )
-        st.caption(
-            "Mesa ocupada é mesa que não gira. Com partySize dá para estimar "
-            "quantas pessoas por hora o salão atende."
         )
 
 with tabs[2]:
@@ -328,10 +307,7 @@ with tabs[2]:
 
     margin = metrics.margin_ranking(win, products)
     if margin.empty or margin["margin"].isna().all():
-        st.info(
-            "Sem margem calculada. Preencha unitCost nos insumos para que a "
-            "ficha técnica produza custo por produto."
-        )
+        st.info("Sem margem calculada no período.")
     else:
         st.subheader("Margem por produto")
         st.dataframe(
@@ -350,8 +326,8 @@ with tabs[2]:
             width="stretch", hide_index=True,
         )
         st.caption(
-            "Custo vem da ficha técnica x unitCost do insumo. Não inclui mao de "
-            "obra, embalagem nem energia, então é margem de contribuição bruta."
+            "Margem de contribuição bruta: não inclui mão de obra, embalagem "
+            "nem energia."
         )
 
     st.subheader("Consumo de insumos derivado da ficha técnica")
@@ -374,7 +350,7 @@ with tabs[2]:
         )
 
 with tabs[3]:
-    fc_daily, fc_total, scores = load_forecast(cfg.data_source, cfg.seed, horizon)
+    fc_daily, fc_total, _ = load_forecast(cfg.data_source, cfg.seed, horizon)
 
     st.subheader(f"Previsão de demanda - próximos {horizon} dias")
     series_all = daily_item_series(sales)
@@ -408,10 +384,6 @@ with tabs[3]:
         legend=dict(orientation="h", y=1.12, x=0), **PLOT_BASE,
     )
     st.plotly_chart(fig, width="stretch")
-    st.caption(
-        "A faixa vem do desvio do histórico recente, não é intervalo de confiança "
-        "estatístico. Está na tela para impedir compra por cima de número cravado."
-    )
 
     st.subheader("Compras sugeridas")
     plan = metrics.purchase_plan(fc_total, tables["recipe"], tables["ingredients"])
@@ -441,10 +413,7 @@ with tabs[3]:
             }),
             width="stretch", hide_index=True,
         )
-        st.caption(
-            "Estoque vem de Ingredients.quantity, que é o saldo atual e não tem "
-            "histórico. Confira o saldo físico antes de comprar."
-        )
+        st.caption("Confira o saldo físico antes de comprar.")
 
     uso_periodo = metrics.ingredient_usage(tables["consumption"], period)
     risk = metrics.expiry_risk(tables["ingredients"], uso_periodo)
@@ -475,42 +444,9 @@ with tabs[3]:
             }),
             width="stretch", hide_index=True,
         )
-        st.caption(
-            "Aproximação por cobertura, não controle de lote. Vencimento de "
-            "verdade exige lote e data de recebimento, que o schema não tem."
-        )
-
-    st.subheader("Modelo contra baseline sazonal")
-    if scores.empty:
-        st.info(
-            "Histórico insuficiente para validação temporal. A previsão acima "
-            "está usando o baseline da mediana do mesmo dia da semana."
-        )
-    else:
-        st.dataframe(
-            scores[["item_name", "n_days", "folds", "baseline_mae", "model_mae",
-                    "model_rmse", "gain_pct", "winner"]].rename(columns={
-                "item_name": "Produto", "n_days": "Dias", "folds": "Folds",
-                "baseline_mae": "MAE baseline", "model_mae": "MAE modelo",
-                "model_rmse": "RMSE modelo", "gain_pct": "Ganho %",
-                "winner": "Vence",
-            }),
-            width="stretch", hide_index=True,
-        )
-        lost = scores[scores["winner"] == "baseline"]["item_name"].tolist()
-        if lost:
-            st.warning(
-                "O baseline ganhou do modelo em: " + ", ".join(lost)
-                + ". Para esses produtos, usar a mediana do mesmo dia da semana "
-                "é mais honesto do que usar o Random Forest."
-            )
 
 with tabs[4]:
     st.subheader("Consultar operações")
-    st.caption(
-        "Navegação sobre os pedidos. Filtre, inspecione um pedido item a item "
-        "e exporte o recorte."
-    )
 
     orders = tables["orders"]
     f1, f2, f3 = st.columns(3)
@@ -622,47 +558,12 @@ with tabs[4]:
         st.caption("ID do pedido: " + str(oid))
 
 with tabs[5]:
-    q = tables["quality"]
-    st.subheader("Qualidade da base analítica")
-    st.caption("Alimenta direto a seção 2.4.10.1 do relatório.")
-
-    a, b, c = st.columns(3)
-    a.metric("Linhas de venda", qty(q["sale_lines"]))
-    b.metric("Linhas validas", f"{q['valid_pct']:.2f}%")
-    c.metric(
-        "Meta do relatório", "95,00%",
-        "atingida" if q["valid_pct"] >= 95 else "abaixo",
-        delta_color="normal" if q["valid_pct"] >= 95 else "inverse",
-    )
-
-    st.dataframe(
-        pd.DataFrame([
-            ("Pedidos lidos", q["orders"]),
-            ("Produtos no menu", q["menu_items"]),
-            ("Insumos cadastrados", q["ingredients"]),
-            ("Linhas de pedidos abertos (excluídas)", q["lines_open_orders"]),
-            ("Linhas com item fora do menu", q["lines_item_not_in_menu"]),
-            ("Linhas sem data", q["lines_without_date"]),
-            ("Linhas com quantidade não positiva", q["lines_non_positive_qty"]),
-            ("Itens cancelados", q["lines_canceled"]),
-            ("Lancamentos com mais de 30 min de atraso", q["lines_late_entry"]),
-        ], columns=["Verificacao", "Registros"]),
-        width="stretch", hide_index=True,
-    )
+    st.subheader("Desempenho do colaborador")
 
     disc = metrics.operator_discipline(win)
     if disc.empty:
-        st.info(
-            "Sem medicao de atraso de lancamento. Exige o campo createdAt, que "
-            "guarda quando o registro foi digitado."
-        )
+        st.info("Sem lançamentos medidos no período.")
     else:
-        st.subheader("Disciplina de lancamento por operador")
-        st.caption(
-            "A diferença entre orderDate (quando o pedido aconteceu) e createdAt "
-            "(quando foi digitado). É a inconsistência que o relatório descreve "
-            "na seção 2.4.1, agora medida."
-        )
         st.dataframe(
             disc.assign(
                 median_lag_min=disc["median_lag_min"].map(minutes),
@@ -680,77 +581,6 @@ with tabs[5]:
         pior = disc.iloc[0]
         if pior["late_pct"] and pior["late_pct"] > 15:
             st.warning(
-                f"{pior['operator']} lanca {pior['late_pct']:.0f}% dos pedidos com "
-                "mais de 30 min de atraso. Indicador por hora desse turno fica "
-                "distorcido, e é um achado para a validação com a gestão."
+                f"{pior['operator']} lança {pior['late_pct']:.0f}% dos pedidos "
+                "com mais de 30 min de atraso."
             )
-
-    sv = metrics.stock_value(tables["ingredients"])
-    st.subheader("Estoque")
-    s1, s2, s3 = st.columns(3)
-    s1.metric("Valor em estoque", brl(sv["total"]))
-    s2.metric("Insumos sem custo", qty(sv["unpriced"]))
-    s3.metric("Abaixo do nível de alerta", qty(sv["below_alert"]))
-
-    st.divider()
-    st.subheader("Campos propostos ainda ausentes no banco")
-    faltando = {k: v for k, v in q["missing"].items() if v}
-    if not faltando:
-        st.success("Todos os campos propostos estao preenchidos nos dados lidos.")
-    else:
-        st.dataframe(
-            pd.DataFrame(
-                [(k, v) for k, v in faltando.items()],
-                columns=["Campo", "Linhas sem o campo"],
-            ),
-            width="stretch", hide_index=True,
-        )
-        st.caption(
-            "O pipeline roda com o campo ausente, mas a análise que depende dele "
-            "fica indisponível. O schema proposto está em proposta_backend/."
-        )
-
-    if q["unknown_units"]:
-        st.error(
-            "Unidades não reconhecidas na ficha técnica: "
-            + ", ".join(map(str, q["unknown_units"]))
-            + ". A quantidade passou sem conversão. Corrija em Menu.ingredients "
-            "ou adicione a unidade em src/schema.py."
-        )
-    else:
-        st.success("Todas as unidades da ficha técnica foram convertidas.")
-
-    if q["categories_inferred"]:
-        st.warning(
-            "Categoria inferida pelo nome em: "
-            + ", ".join(map(str, q["categories_inferred"]))
-            + ". Preencha Menu.category para não depender da heurística."
-        )
-    if q["products_without_cost"]:
-        st.warning(
-            "Produtos sem custo completo: "
-            + ", ".join(map(str, q["products_without_cost"]))
-            + ". Falta unitCost em algum insumo da ficha técnica."
-        )
-    if q["recipes_with_orphan_ingredient"]:
-        st.error(
-            "Produtos com insumo inexistente na ficha técnica: "
-            + ", ".join(map(str, q["recipes_with_orphan_ingredient"]))
-        )
-
-    st.divider()
-    st.subheader("O que continua fora de alcance")
-    st.markdown(
-        "Mesmo com os campos propostos, estas analises seguem impossiveis "
-        "porque dependem de registro que não existe:\n\n"
-        "- **Movimentação de estoque** - a reposição sobrescreve a quantidade e "
-        "a baixa é um incremento direto; nenhuma das duas deixa histórico\n"
-        "- **Histórico de compras** - a reposição não guarda data, quantidade "
-        "nem preço pago\n"
-        "- **Vencimento por lote** - `shelfLifeDays` permite estimar risco de "
-        "sobra, mas não dizer qual lote vence primeiro\n"
-        "- **Divergência consumo esperado x registrado** - precisa do movimento "
-        "de saída para comparar com a ficha técnica\n\n"
-        "As três primeiras saem com uma collection `StockMovements` e um campo "
-        "de lote. A quarta vem de graça depois disso."
-    )
