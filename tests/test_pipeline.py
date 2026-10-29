@@ -293,6 +293,58 @@ def test_plataforma_so_conta_pedido_de_delivery():
     assert metrics.platform_breakdown(build_all(_raw_legado())["sales"]).empty
 
 
+def test_pix_no_canal_proprio_nao_tem_taxa_nem_comissao():
+    raw = _raw_com_cancelado()
+    raw["DiningTables"][0]["paymentMethod"] = "PIX"
+    pay = metrics.payment_mix(build_all(raw)["sales"])
+    linha = pay[pay["payment"] == "PIX"].iloc[0]
+    assert linha["fee_value"] == pytest.approx(0.0)
+    assert linha["commission_value"] == pytest.approx(0.0)
+
+
+def test_pix_no_ifood_tem_comissao_mas_taxa_zero():
+    pay = metrics.payment_mix(
+        build_all(_raw_delivery(platform="IFOOD", payment="PIX"))["sales"]
+    )
+    linha = pay[pay["payment"] == "PIX"].iloc[0]
+    assert linha["fee_value"] == pytest.approx(0.0)
+    assert linha["commission_value"] == pytest.approx(60.0 * 0.23)
+
+
+def test_dinheiro_no_ifood_tem_comissao_mas_taxa_zero():
+    pay = metrics.payment_mix(
+        build_all(_raw_delivery(platform="IFOOD", payment="DINHEIRO"))["sales"]
+    )
+    linha = pay[pay["payment"] == "DINHEIRO"].iloc[0]
+    assert linha["fee_value"] == pytest.approx(0.0)
+    assert linha["commission_value"] == pytest.approx(60.0 * 0.23)
+
+
+def test_credito_no_canal_proprio_tem_taxa_mas_nao_comissao():
+    raw = _raw_com_cancelado()
+    raw["DiningTables"][0]["paymentMethod"] = "CREDITO"
+    pay = metrics.payment_mix(build_all(raw)["sales"])
+    linha = pay[pay["payment"] == "CREDITO"].iloc[0]
+    assert linha["commission_value"] == pytest.approx(0.0)
+    assert linha["fee_value"] == pytest.approx(linha["revenue"] * 0.032)
+
+
+def test_comissao_mais_taxa_fecham_com_o_liquido():
+    pay = metrics.payment_mix(
+        build_all(_raw_delivery(platform="IFOOD", payment="CREDITO"))["sales"]
+    )
+    linha = pay.iloc[0]
+    assert linha["revenue"] - linha["commission_value"] - linha["fee_value"] == (
+        pytest.approx(linha["net_value"])
+    )
+
+
+def test_payment_mix_vazio_devolve_as_duas_colunas():
+    pay = metrics.payment_mix(build_all(_raw_minimo())["sales"].iloc[0:0])
+    assert "commission_value" in pay.columns
+    assert "fee_value" in pay.columns
+
+
 def test_desconto_do_pedido_nao_duplica_entre_itens():
     raw = _raw_com_cancelado()
     raw["DiningTables"][0]["discountValue"] = 10.0

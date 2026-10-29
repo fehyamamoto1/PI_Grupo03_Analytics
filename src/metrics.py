@@ -3,7 +3,12 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from .schema import CHANNEL_DELIVERY, CHANNEL_LABEL, platform_commission
+from .schema import (
+    CHANNEL_DELIVERY,
+    CHANNEL_LABEL,
+    payment_fee,
+    platform_commission,
+)
 
 WEEKDAY_PT = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sab", "Dom"]
 
@@ -148,16 +153,23 @@ def platform_breakdown(sales: pd.DataFrame) -> pd.DataFrame:
 
 
 def payment_mix(sales: pd.DataFrame) -> pd.DataFrame:
-    cols = ["payment", "orders", "revenue", "share", "fee_value"]
+    cols = ["payment", "orders", "revenue", "share", "commission_value",
+            "fee_value", "net_value"]
     if sales.empty:
         return pd.DataFrame(columns=cols)
 
-    out = sales.groupby("payment", as_index=False).agg(
+    base = sales.assign(
+        _commission=sales["line_value"]
+        * sales["platform"].map(platform_commission).fillna(0.0),
+        _fee=sales["line_value"] * sales["payment"].map(payment_fee).fillna(0.0),
+    )
+    out = base.groupby("payment", as_index=False).agg(
         orders=("order_id", "nunique"),
         revenue=("line_value", "sum"),
+        commission_value=("_commission", "sum"),
+        fee_value=("_fee", "sum"),
         net_value=("net_value", "sum"),
     )
-    out["fee_value"] = out["revenue"] - out["net_value"]
     total = out["revenue"].sum()
     out["share"] = out["revenue"] / total * 100 if total else 0.0
     return out.sort_values("revenue", ascending=False).reset_index(drop=True)

@@ -208,12 +208,23 @@ with tabs[0]:
             pay.assign(
                 revenue=pay["revenue"].map(brl),
                 share=pay["share"].map(pct),
+                commission_value=pay["commission_value"].map(brl),
                 fee_value=pay["fee_value"].map(brl),
-            )[["payment", "orders", "revenue", "share", "fee_value"]].rename(columns={
+            )[["payment", "orders", "revenue", "share", "commission_value",
+               "fee_value"]].rename(columns={
                 "payment": "Meio", "orders": "Pedidos", "revenue": "Receita",
-                "share": "Participacao", "fee_value": "Taxa",
+                "share": "Participação",
+                "commission_value": "Comissão plataforma",
+                "fee_value": "Taxa do meio",
             }),
             width="stretch", hide_index=True,
+        )
+        st.caption(
+            "As duas retenções são separadas de propósito. Pix e dinheiro têm "
+            "taxa zero: o que aparece em comissão são pedidos de delivery pagos "
+            "por esses meios, e essa retenção é do app, não da maquininha. "
+            "Desconto para Pix se paga com a coluna Taxa do meio, não com a "
+            "coluna de comissão."
         )
 
 with tabs[1]:
